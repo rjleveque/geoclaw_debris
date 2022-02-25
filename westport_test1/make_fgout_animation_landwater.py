@@ -34,7 +34,7 @@ import debris_tools
     
 fgno = 11  # which fgout grid
 
-outdir = '_output'
+outdir = '_output_S-A-Whole'
 format = 'binary'  # format of fgout grid output
 
 # list of frames of fgout solution to use in animation:
@@ -46,7 +46,8 @@ bgimage = None  # if None, then color plots of B0 will be used.
 
 if 1:
     # provide a background image 
-    graphics_dir = '/Users/rjl/git/WestportMaritime/graphics/'
+    #graphics_dir = '/Users/rjl/git/WestportMaritime/graphics/'
+    graphics_dir = './'
     bgimage = imread(graphics_dir+'fgout11CT.png')
     bgimage_extent = [-124.16, -124.08, 46.885, 46.92]  # corners of bgimage
 
@@ -109,7 +110,7 @@ for i in range(len(xd)):
             drag_factor[dbno] = None
         elif B0_fcn(x0,y0) > 0:
             dbnos_land.append(dbno)
-            grounding_depth[dbno] = 1.
+            grounding_depth[dbno] = 2.
             drag_factor[dbno] = 0.02
 
 dbnos = dbnos_water + dbnos_land
@@ -158,7 +159,7 @@ if bgimage is None:
 else:
     a = 0.4
     
-bounds_depth = array([1e-6,1,2,3])
+bounds_depth = array([1e-6,2,4,6])
 cmap_depth = colors.ListedColormap([[.3,.3,1,a],[0,0,1,a],[.5,0,.5,a]])
 
 # Set color to transparent where no water:

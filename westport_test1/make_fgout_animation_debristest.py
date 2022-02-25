@@ -34,10 +34,11 @@ import debris_tools
     
 fgno = 11  # which fgout grid
 
-outdir = '_output'
+outdir = '_output_S-A-Whole'
 format = 'binary'  # format of fgout grid output
 
-fgframes = range(200,230)  # frames of fgout solution to use in animation
+# list of frames of fgout solution to use in animation:
+fgframes = range(200,230)
 
 figsize = (10,8)
 
@@ -45,7 +46,8 @@ figsize = (10,8)
 
 #bgimage = None  # if None, then color plots of fgout.B will be used.
 
-graphics_dir = '/Users/rjl/git/WestportMaritime/graphics/'
+#graphics_dir = '/Users/rjl/git/WestportMaritime/graphics/'
+graphics_dir = './'
 bgimage = imread(graphics_dir+'fgout11CT.png')
 bgimage_extent = [-124.16, -124.08, 46.885, 46.92]  # corners of bgimage
 
@@ -112,10 +114,12 @@ print('Created %i initial debris particles' % len(dbnos))
 debris_paths = debris_tools.make_debris_paths(fgframes, fgout_grid, 
                             debris_paths, dbnos, drag_factor, grounding_depth)
 
-    
-    
+
 # done computing debris paths
 # ------------------------------
+
+# ----------
+# Plotting:
 
 # Plot one frame of fgout data and define the Artists that will need to
 # be updated in subsequent frames:

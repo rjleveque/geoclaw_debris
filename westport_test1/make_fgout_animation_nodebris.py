@@ -31,9 +31,9 @@ sys.path.insert(0,'/Users/rjl/git/geoclaw_debris/common_python')
 import debris_tools
     
 fgno = 11  # which fgout grid
-qoi = 'h'  # what to plot, 'eta' or 'h'
+qoi = 'speed'  # what to plot, 'h', 'speed' or 'eta'
 
-outdir = '_output'
+outdir = '_output_S-A-Whole'
 format = 'binary'  # format of fgout grid output
 
 fgframes = range(200,230)  # frames of fgout solution to use in animation
@@ -44,7 +44,8 @@ figsize = (10,8)
 
 #bgimage = None  # if None, then color plots of fgout.B will be used.
 
-graphics_dir = '/Users/rjl/git/WestportMaritime/graphics/'
+#graphics_dir = '/Users/rjl/git/WestportMaritime/graphics/'
+graphics_dir = './'
 bgimage = imread(graphics_dir+'fgout11CT.png')
 bgimage_extent = [-124.16, -124.08, 46.885, 46.92]  # corners of bgimage
 
@@ -74,6 +75,13 @@ else:
 ax.set_xlim(plot_extent[:2])
 ax.set_ylim(plot_extent[2:])
 
+
+# set trasparency alpha for imshow plots of qoi (1=opaque)
+if bgimage is None:
+    a = 1
+else:
+    a = 0.4
+
 if qoi == 'eta':
     eta = ma.masked_where(fgout1.h<0.001, fgout1.eta)
 
@@ -87,12 +95,6 @@ if qoi == 'eta':
 
     
 elif qoi == 'h':
-    
-    # set alpha (transparency,  1=opaque)
-    if bgimage is None:
-        a = 1
-    else:
-        a = 0.4
         
     bounds_depth = array([1e-6,1,2,3])
     cmap_depth = colors.ListedColormap([[.3,.3,1,a],[0,0,1,a],[.5,0,.5,a]])
@@ -107,6 +109,22 @@ elif qoi == 'h':
     cb = colorbar(qoi_plot, extend='max', shrink=0.7)
     cb.set_label('meters')
     title_text = title('Depth h at %s after quake' % fgout1.t_hms)
+
+elif qoi == 'speed':
+        
+    bounds_speed = array([1e-6,2,4,6])
+    cmap_speed = colors.ListedColormap([[.3,.3,1,a],[0,0,1,a],[.5,0,.5,a]])
+    
+    # Set color to transparent where no water:
+    cmap_speed.set_under(color=[1,1,1,0])
+    norm_speed = colors.BoundaryNorm(bounds_speed, cmap_speed.N)
+
+    qoi_plot = imshow(flipud(fgout1.s.T), extent=fgout1.extent_edges,
+                      cmap=cmap_speed, norm=norm_speed)
+                      
+    cb = colorbar(qoi_plot, extend='max', shrink=0.7)
+    cb.set_label('meters/sec')
+    title_text = title('Speed s at %s after quake' % fgout1.t_hms)
 
 
 ax.set_aspect(1./cos(ylat*pi/180.))
@@ -135,13 +153,15 @@ def update(fgframeno, *update_artists):
     if qoi == 'eta':
         title_text.set_text('Surface eta at %s after quake' % fgout.t_hms)
         eta = ma.masked_where(fgout.h<0.001, fgout.eta)
-        #qoi_plot.set_array(eta.T.flatten()) # for pcolorcells
         qoi_plot.set_data(flipud(eta.T))  # for imshow
         
     elif qoi == 'h':
         title_text.set_text('Depth h at %s after quake' % fgout.t_hms)
-        #qoi_plot.set_array(fgout.h.T.flatten()) # for pcolorcells
         qoi_plot.set_data(flipud(fgout.h.T))  # for imshow
+
+    elif qoi == 'speed':
+        title_text.set_text('Speed s at %s after quake' % fgout.t_hms)
+        qoi_plot.set_data(flipud(fgout.s.T))  # for imshow
         
     update_artists = (qoi_plot, title_text)
     return update_artists
