@@ -24,11 +24,18 @@ from pylab import *
 import os
 from clawpack.visclaw import plottools, geoplot
 from clawpack.visclaw import animation_tools
-from clawpack.geoclaw import fgout_tools
 from matplotlib import animation, colors
+from datetime import timedelta 
 
-sys.path.insert(0,'/Users/rjl/git/geoclaw_debris/common_python')
-import debris_tools
+if 1:
+    from clawpack.geoclaw import fgout_tools
+    sys.path.insert(0,'../common_python')
+    import debris_tools
+    graphics_dir = '/Users/rjl/git/WestportMaritime/graphics/'
+else:
+    # local versions for self-contained directory:
+    import fgout_tools, debris_tools
+    graphics_dir = './'
     
 fgno = 11  # which fgout grid
 qoi = 'speed'  # what to plot, 'h', 'speed' or 'eta'
@@ -42,10 +49,8 @@ figsize = (10,8)
 
 # background image?
 
-#bgimage = None  # if None, then color plots of fgout.B will be used.
+bgimage = None  # if None, then color plots of fgout.B will be used.
 
-#graphics_dir = '/Users/rjl/git/WestportMaritime/graphics/'
-graphics_dir = './'
 bgimage = imread(graphics_dir+'fgout11CT.png')
 bgimage_extent = [-124.16, -124.08, 46.885, 46.92]  # corners of bgimage
 
@@ -91,7 +96,8 @@ if qoi == 'eta':
     clim(-5,5)
     cb = colorbar(qoi_plot, extend='both', shrink=0.7)
     cb.set_label('meters')
-    title_text = title('Surface eta at %s after quake' % fgout1.t_hms)
+    title_text = title('Surface eta at %s after quake' \
+                % timedelta(seconds=fgout1.t))
 
     
 elif qoi == 'h':
@@ -108,7 +114,8 @@ elif qoi == 'h':
                       
     cb = colorbar(qoi_plot, extend='max', shrink=0.7)
     cb.set_label('meters')
-    title_text = title('Depth h at %s after quake' % fgout1.t_hms)
+    title_text = title('Depth h at %s after quake' \
+                % timedelta(seconds=fgout1.t))
 
 elif qoi == 'speed':
         
@@ -124,7 +131,7 @@ elif qoi == 'speed':
                       
     cb = colorbar(qoi_plot, extend='max', shrink=0.7)
     cb.set_label('meters/sec')
-    title_text = title('Speed s at %s after quake' % fgout1.t_hms)
+    title_text = title('Speed s at %s after quake' % timedelta(seconds=fgout1.t))
 
 
 ax.set_aspect(1./cos(ylat*pi/180.))
@@ -145,22 +152,22 @@ def update(fgframeno, *update_artists):
     """
     
     fgout = fgout_grid.read_frame(fgframeno)
-    print('Updating plot at time %s' % fgout.t_hms)    
+    print('Updating plot at time %s' % timedelta(seconds=fgout.t))    
     
     # unpack update_artists (must agree with definition above):
     qoi_plot, title_text = update_artists
         
     if qoi == 'eta':
-        title_text.set_text('Surface eta at %s after quake' % fgout.t_hms)
+        title_text.set_text('Surface eta at %s after quake' % timedelta(seconds=fgout.t))
         eta = ma.masked_where(fgout.h<0.001, fgout.eta)
         qoi_plot.set_data(flipud(eta.T))  # for imshow
         
     elif qoi == 'h':
-        title_text.set_text('Depth h at %s after quake' % fgout.t_hms)
+        title_text.set_text('Depth h at %s after quake' % timedelta(seconds=fgout.t))
         qoi_plot.set_data(flipud(fgout.h.T))  # for imshow
 
     elif qoi == 'speed':
-        title_text.set_text('Speed s at %s after quake' % fgout.t_hms)
+        title_text.set_text('Speed s at %s after quake' % timedelta(seconds=fgout.t))
         qoi_plot.set_data(flipud(fgout.s.T))  # for imshow
         
     update_artists = (qoi_plot, title_text)
