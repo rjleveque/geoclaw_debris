@@ -6,6 +6,9 @@ Note: The functions clawpack.geoclaw.fgout_tools.make_fgout_fcn_xy and
 clawpack.geoclaw.fgout_tools.make_fgout_fcn_xyt are used
 to create functions used to interpolate the fluid velocity u,v
 from fgout frames to particle locations.
+
+These are experimental tools that are still under development.
+
 """
 
 from pylab import *
@@ -15,7 +18,7 @@ from clawpack.geoclaw.data import Rearth,DEG2RAD
 
 
 def move_debris(dbnos, debris_paths, fgout1, fgout2, coordinate_system=2,
-                drag_factor=None, grounding_depth=0.):
+                drag_factor=None, grounding_depth=0., grounding_speed=0.):
     """
     For each dbno in dbnos: debris_paths[dbno] is a 2D array and it is assumed
     that the last row has the form [t1, x1, y1, u1, v1] with the location and
@@ -31,22 +34,37 @@ def move_debris(dbnos, debris_paths, fgout1, fgout2, coordinate_system=2,
                         2 if (x,y) are degrees longitude, latitude
     The velocities (u,v) are always in m/s.
     
-    drag_factor and grounding_depth can be single values applying to all
-    particles, or dictionaries with keys given by the elements of dbnos.
+    drag_factor, grounding_depth, and grounding_speed
+    can be single values applying to all particles, or dictionaries with
+    keys given by the elements of dbnos.
     
-    If drag_factor[dbno]==None and grounding_depth[dbno]==0, then we passively
-    advect the debris particle with the fluid velocity.  This is
-    currently implemented using the 2-step explicit Runge-Kutta method:
+    If drag_factor[dbno]==None, grounding_depth[dbno]==0, and 
+    grounding_speed[dbno]==0, then the debris particles passively advect
+    with the fluid velocity.
+    
+    This is currently implemented using the 2-step explicit Runge-Kutta method:
     1. Interpolate fgout1.u and fgout1.v to (x1,y1) and move the particle
     over time dt/2 with this velocity, to obtain (xm,ym).
     2. Interpolate (u,v) in space and time to this midpoint location, and then
     use this velocity to move the particle over time dt from (x1,y1) to (x2,y2).
     
-    If grounding_depth[dbno] > 0 then the particle is assumed to be grounded
-    whenever the local fluid depth h < grounding_depth[dbno], where h
-    is interpolated first to (x1,y1) and then to (xm,ym).
+    If grounding_depth[dbno] > 0 and/or grounding_speed > 0,
+    then the particle is assumed to be grounded
+    whenever the local fluid depth h < grounding_depth[dbno]
+    or the speed s < grounding_speed, where h and s are
+    interpolated first to (x1,y1) and then to (xm,ym).
     
-    If drag_factor[dbno] > 0, then 
+    If drag_factor[dbno] > 0, then the particle velocity (ud,vd)
+    relaxes toward the fluid velocity (u,v) by approximately solving the ODEs
+      d/dt ud = C * (u-ud)
+      d/dt vd = C * (v-vd)
+    where C = drag_factor[dbno]*sqrt((u-ud)**2 + (v-vd)**2)
+    We approximate this by setting C to value at the current time, yielding
+    exponential decay of (ud,vd) toward (u,v) with rate C over each time step.
+    
+    Still to add: Static and dynamic bottom friction, so that if the fluid depth
+    is less than grounding_depth[dbno], the particle could still be dragged.
+
     """
     
     from clawpack.geoclaw.fgout_tools import make_fgout_fcn_xyt
@@ -81,22 +99,30 @@ def move_debris(dbnos, debris_paths, fgout1, fgout2, coordinate_system=2,
             gd = grounding_depth  # assume it's a scalar, same for all debris
             
         try:
+            gs = grounding_speed[dbno]  # if different for each particle
+        except:
+            gs = grounding_speed  # assume it's a scalar, same for all debris
+             
+        try:
             df = drag_factor[dbno]  # if different for each particle
         except:
             df = drag_factor  # assume it's a scalar, same for all debris
         
-        if coordinate_system == 2:
+        if coordinate_system == 1:
+            dxdt = ud1
+            dydt = vd1
+        else:
             # x,y in degrees, u,v in m/s
             # convert u,v to degrees/second:
-            ud1 = ud1 / (Rearth*DEG2RAD * cos(DEG2RAD*yd1))
-            vd1 = vd1 / (Rearth*DEG2RAD)
+            dxdt = ud1 / (Rearth*DEG2RAD * cos(DEG2RAD*yd1))
+            dydt = vd1 / (Rearth*DEG2RAD)
             
         # Assume ud1, vd1 were properly set at time fgout1.t, so no need
         # to check for grounding now.
         
         # Half time step with old velocities:
-        xdm = xd1 + 0.5*dt*ud1
-        ydm = yd1 + 0.5*dt*vd1
+        xdm = xd1 + 0.5*dt*dxdt
+        ydm = yd1 + 0.5*dt*dydt
         
         tm = t1 + 0.5*dt  # t at midpoint in time
         
@@ -104,8 +130,9 @@ def move_debris(dbnos, debris_paths, fgout1, fgout2, coordinate_system=2,
         hm = h_fcn(xdm,ydm,tm)
         um = u_fcn(xdm,ydm,tm)
         vm = v_fcn(xdm,ydm,tm)
+        sm = sqrt(um**2 + vm**2)
     
-        if hm < gd:
+        if hm < gd or sm < gs:
             # particle is grounded so velocities set to 0:
             udm = 0.
             vdm = 0.        
@@ -125,15 +152,21 @@ def move_debris(dbnos, debris_paths, fgout1, fgout2, coordinate_system=2,
             v1 = v_fcn(xd1,yd1,t1)
             C = df*sqrt((u1-ud1)**2 + (v1-vd1)**2)
             udm = um - exp(-C*dt/2)*(um-ud1)
-            vdm = vm - exp(-C*dt/2)*(vm-vd1)            
+            vdm = vm - exp(-C*dt/2)*(vm-vd1)
+            #print('+++ um=%g,  ud1=%g,  udm=%g: ' % (um,ud1,udm))         
             
-        if coordinate_system == 2:
-            udm = udm / (Rearth*DEG2RAD * cos(DEG2RAD*ydm))
-            vdm = vdm / (Rearth*DEG2RAD)
+        if coordinate_system == 1:
+            dxdt = udm
+            dydt = vdm
+        else:
+            # x,y in degrees, u,v in m/s
+            # convert u,v to degrees/second:
+            dxdt = udm / (Rearth*DEG2RAD * cos(DEG2RAD*yd1))
+            dydt = vdm / (Rearth*DEG2RAD)
         
         # Take full time step with mid-point debris velocities:
-        xd2 = xd1 + dt*udm
-        yd2 = yd1 + dt*vdm
+        xd2 = xd1 + dt*dxdt
+        yd2 = yd1 + dt*dydt
         
         # Depth and fluid velocity at final time t2 (to append to debris_path):
         h2 = h_fcn(xd2,yd2,t2)
@@ -149,12 +182,14 @@ def move_debris(dbnos, debris_paths, fgout1, fgout2, coordinate_system=2,
             ud2 = u2
             vd2 = v2
         else:
+            # IS THIS RIGHT?  NEED TO CONVERT BACK FROM DEGREE/SEC?
             # debris velocity (ud,vd) relaxes toward fluid velocity (u,v).
             # Take another half time step of decay from (udm,vdm),
             # now approximating C at the midpoint in time:
             C = df*sqrt((um-udm)**2 + (vm-vdm)**2)
             ud2 = u2 - exp(-C*dt/2)*(u2-udm)
-            vd2 = v2 - exp(-C*dt/2)*(v2-vdm)    
+            vd2 = v2 - exp(-C*dt/2)*(v2-vdm)
+            #print('+++ u2=%g,  udm=%g,  ud2=%g: ' % (u2,udm,ud2)) 
         
         debris_paths[dbno] = vstack((debris_path, array([t2,xd2,yd2,ud2,vd2])))
         
@@ -163,7 +198,7 @@ def move_debris(dbnos, debris_paths, fgout1, fgout2, coordinate_system=2,
 
             
 def make_debris_paths(fgframes, fgout_grid, debris_paths, dbnos,
-                      drag_factor=None, grounding_depth=0.):
+                      drag_factor=None, grounding_depth=0., grounding_speed=0.):
     """
     dbnos is a list of debris particle labels (integers) to operate on.
     debris_paths a dictionary indexed by integer dbno.
@@ -207,7 +242,8 @@ def make_debris_paths(fgframes, fgout_grid, debris_paths, dbnos,
             break
         debris_paths = move_debris(dbnos, debris_paths, fgout1, fgout2,
                                    drag_factor=drag_factor, 
-                                   grounding_depth=grounding_depth)
+                                   grounding_depth=grounding_depth,
+                                   grounding_speed=grounding_speed)
         fgout1 = fgout2
     return debris_paths
 
@@ -230,10 +266,12 @@ def get_debris_xy(t, debris_paths, dbnos):
         except:
             print('Did not find path for dbno=%i at t = %.3f' % (dbno,t))
             j = -1
+            xd.append(nan)
+            yd.append(nan)
         if j > -1:
             xd.append(db[j,1])
             yd.append(db[j,2])
-            
+                
     return xd,yd
             
 
@@ -247,8 +285,8 @@ def get_debris_xy(t, debris_paths, dbnos):
 # These functions have not yet been updated to include grounding_depth
 # or drag_factor.
 
-
-def move_debris_pairs(dbnosA, dbnosB, debris_paths, fgout1, fgout2):
+def move_debris_pairs(dbnosA, dbnosB, debris_paths, fgout1, fgout2,
+                      coordinate_system=2):
     """
     The lists dbnosA and dbnosB should be the same length and the two particles
     dbnosA[k] and dbnosB[k] should be constrained to maintain constant distance 
@@ -256,6 +294,13 @@ def move_debris_pairs(dbnosA, dbnosB, debris_paths, fgout1, fgout2):
     """
     
     from clawpack.geoclaw.util import haversine 
+    
+    if coordinate_system == 1:
+        dist = lambda xB,yB,xA,yA: sqrt((xB-xA)**2 + (yB-yA)**2)
+    else:
+        # longitude-latitude:
+        dist = lambda xB,yB,xA,yA: haversine(xB,yB,xA,yA)
+        
 
     # first move each particle by the unconstrained algorithm:
     dbnosAB = list(dbnosA) + list(dbnosB)
@@ -271,12 +316,12 @@ def move_debris_pairs(dbnosA, dbnosB, debris_paths, fgout1, fgout2):
         # previous positions before move_debris performed above:
         tA_old,xdA_old,ydA_old,udA_old,vdA_old = debris_paths[dbnoA][-2,:]
         tB_old,xdB_old,ydB_old,udB_old,vdB_old = debris_paths[dbnoB][-2,:]
-        dist_old = haversine(xdB_old, ydB_old, xdA_old, ydA_old)
+        dist_old = dist(xdB_old, ydB_old, xdA_old, ydA_old)
 
         # new positions computed by move_debris:
         tA_new,xdA_new,ydA_new,udA_new,vdA_new = debris_paths[dbnoA][-1,:]
         tB_new,xdB_new,ydB_new,udB_new,vdB_new = debris_paths[dbnoB][-1,:]
-        dist_new = haversine(xdB_new, ydB_new, xdA_new, ydA_new)
+        dist_new = dist(xdB_new, ydB_new, xdA_new, ydA_new)
         
         # now adjust so that new dist agrees with dist_old
         # keep midpoint xdm,ydm fixed and adjust distance to each end:
@@ -304,7 +349,7 @@ def move_debris_pairs(dbnosA, dbnosB, debris_paths, fgout1, fgout2):
 
 
 def make_debris_paths_pairs(fgno, fgframes, plotdata, debris_paths,
-                            dbnosA, dbnosB):
+                            dbnosA, dbnosB, coordinate_system=2):
     """
     dbnosA,dbnosB are equal-length lists of debris particle labels (integers)
     to operate on, specifying ed points of long debris particles.
@@ -320,7 +365,7 @@ def make_debris_paths_pairs(fgno, fgframes, plotdata, debris_paths,
             print('Could not read file, exiting loop')
             break
         debris_paths = move_debris_pairs(dbnosA, dbnosB, debris_paths, 
-                                         fgout1, fgout2)
+                                         fgout1, fgout2, coordinate_system)
         fgout1 = fgout2
     return debris_paths
 
@@ -333,6 +378,8 @@ def plot_debris_pairs(t, debris_paths, dbnosA, dbnosB, ax,
     assuming debris_paths[dbno] has a row corresponding to this time.
     This assumes debris_paths contains the full debris paths as computed by
     make_debris_paths.
+    
+    Done with a loop over plot commands, making it hard to use for animation.
     """
     
     for k in range(len(dbnosA)):
@@ -352,3 +399,47 @@ def plot_debris_pairs(t, debris_paths, dbnosA, dbnosB, ax,
             yB = dbB[j,2]
             ax.plot([xA,xB], [yA,yB], color=color, linewidth=linewidth)
             
+def get_dbAB(t, debris_paths, dbnosA, dbnosB):
+    """
+    return xdAB, ydAB as arrays of the pairs of endpoints separated by nan's
+    so that a single plot command can plot all pairs.
+    """
+    xA = get_debris_xy(t, debris_paths, dbnosA)
+    xB = get_debris_xy(t, debris_paths, dbnosB)
+    xdAB = []
+    ydAB = []
+    
+    for k in range(len(dbnosA)):
+        xdAB = xdAB + [xA[k],xB[k],nan]
+        ydAB = ydAB + [yA[k],yB[k],nan]
+
+    xdAB = array(xdAB)
+    ydAB = array(ydAB)
+    return xdAB,ydAB
+    
+            
+def get_dbAB_old(t, debris_paths, dbnosA, dbnosB):
+    xdAB = []
+    ydAB = []
+    
+    for k in range(len(dbnosA)):
+        dbnoA = dbnosA[k]
+        dbnoB = dbnosB[k]
+        dbA = debris_paths[dbnoA]
+        dbB = debris_paths[dbnoB]
+        try:
+            j = where(abs(dbA[:,0]-t) < 1e-6)[0].max()
+        except:
+            print('Did not find path for dbno=%i at t = %.3f' % (dbno,t))
+            j = -1
+        if j > -1:
+            xA = dbA[j,1]
+            yA = dbA[j,2]
+            xB = dbB[j,1]
+            yB = dbB[j,2]
+            xdAB = xdAB + [xA,xB,nan]
+            ydAB = ydAB + [yA,yB,nan]
+            #import pdb; pdb.set_trace()
+    xdAB = array(xdAB)
+    ydAB = array(ydAB)
+    return xdAB,ydAB
