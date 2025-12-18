@@ -1,12 +1,14 @@
 """
 Tools for debris tracking based on given velocity field.
 Rigid body motion is supported.
-Need to add interaction between debris Objects or with walls.
+Includes interaction between debris Objects or with walls.
 """
 
 from pylab import *
 import shapely
 
+# for old __main__ test that should be updated:
+from RigidMotion import make_corner_paths_accel
 
 class DebrisObject():
 
