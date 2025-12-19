@@ -7,8 +7,6 @@ Includes interaction between debris Objects or with walls.
 from pylab import *
 import shapely
 
-# for old __main__ test that should be updated:
-from RigidMotion import make_corner_paths_accel
 
 class DebrisObject():
 
@@ -115,6 +113,26 @@ class DebrisPath():
             self.z_path = None
             self.info_path = None
 
+def make_rectangular_obstacle(x1,x2,y1,y2):
+    """
+    Create obst representing a rectangular stationary obstacle with specified
+    extent.
+    """
+    obst_x = array([x1,x1,x2,x2])
+    obst_y = array([y1,y2,y2,y1])
+    obst_p = vstack((obst_x,obst_y)).T
+    obst_polygon = shapely.Polygon(obst_p)
+    xcentroid = obst_x.mean()
+    ycentroid = obst_y.mean()
+    radius = 0.5*sqrt((x2-x1)**2 + (y2-y1)**2) # for rectangle
+    obst = {}
+    obst['polygon'] = obst_polygon
+    obst['xcentroid'] = xcentroid
+    obst['ycentroid'] = ycentroid
+    obst['radius'] = radius
+    return obst
+
+
 def make_debris_path(debris,z0,t0,dt,nsteps,h_fcn,u_fcn,v_fcn,verbose=False):
 
     # initial corner locations:
@@ -128,8 +146,11 @@ def make_debris_path(debris,z0,t0,dt,nsteps,h_fcn,u_fcn,v_fcn,verbose=False):
     times = arange(t0, t0+(nsteps+0.5)*dt, dt)
     debris_path = DebrisPath(debris, times, z0)
 
-    #info0 = {'friction': 'static'}  # since not moving at t0
-    info0 = debris.info  # might include 'material' as well as 'friction'
+    try:
+        info0 = debris.info  # might include 'material' as well as 'friction'
+    except:
+        info0 = {'friction': 'static'}  # since not moving at t0
+
     debris_path.info_path = [info0]  # will append new dict at each time
 
 
@@ -329,8 +350,11 @@ def make_debris_path_list(debris_list, z0_list, obst_list, domain,
         times = arange(t0, t0+(nsteps+0.5)*dt, dt)
         debris_path = DebrisPath(debris, times, z0)
 
-        #info0 = {'friction': 'static'}  # since not moving at t0
-        info0 = debris.info  # might include 'material' as well as 'friction'
+        try:
+            info0 = debris.info  # might include 'material' as well as 'friction'
+        except:
+            info0 = {'friction': 'static'}  # since not moving at t0
+
         debris_path.info_path = [info0]  # will append new dict at each time
         debris_path_list.append(debris_path)
 
@@ -549,7 +573,7 @@ def remap(xc_hat, yc_hat, z_guess, get_corners):
 
 
 def remap_avoid(xc_hat_list, yc_hat_list, debris_list, z_guess_list,
-                obst_list=[], domain=[-inf,inf,-inf,inf]):
+                obst_list=[], domain=None):
     """
     Adjust xc_hat, yc_hat to xc,yc so that original shape is preserved.
     z_guess is initial guess for z defining xc,yc.
@@ -649,19 +673,20 @@ def remap_avoid(xc_hat_list, yc_hat_list, debris_list, z_guess_list,
                 #print('yc%i = %s' % (dbno2,repr(array(yc2))))
 
             # debris-wall collisions:
-            x1,x2,y1,y2 = domain
-            if xc.min() < x1:
-                #f_total = hstack((f_total, Wover*(x1 - xc.min())**2))
-                Fwalls += Wover*(x1 - xc.min())**2
-            if xc.max() > x2:
-                #f_total = hstack((f_total, Wover*(xc.max() - x2)**2))
-                Fwalls += Wover*(xc.max() - x2)**2
-            if yc.min() < y1:
-                #f_total = hstack((f_total, Wover*(y1 - yc.min())**2))
-                Fwalls += Wover*(y1 - yc.min())**2
-            if yc.max() > y2:
-                #f_total = hstack((f_total, Wover*(yc.max() - y2)**2))
-                Fwalls += Wover*(yc.max() - y2)**2
+            if domain is not None:
+                x1,x2,y1,y2 = domain
+                if xc.min() < x1:
+                    #f_total = hstack((f_total, Wover*(x1 - xc.min())**2))
+                    Fwalls += Wover*(x1 - xc.min())**2
+                if xc.max() > x2:
+                    #f_total = hstack((f_total, Wover*(xc.max() - x2)**2))
+                    Fwalls += Wover*(xc.max() - x2)**2
+                if yc.min() < y1:
+                    #f_total = hstack((f_total, Wover*(y1 - yc.min())**2))
+                    Fwalls += Wover*(y1 - yc.min())**2
+                if yc.max() > y2:
+                    #f_total = hstack((f_total, Wover*(yc.max() - y2)**2))
+                    Fwalls += Wover*(yc.max() - y2)**2
 
         f_total = hstack((f_total, Fwalls))
         #f_total = hstack((f_total, Fover))
@@ -774,15 +799,26 @@ def test_debris_path_list():
     z0 = [0,0.5,0]
 
     debris_list = [debris]
-    obst_list = []
+    obst = make_rectangular_obstacle(2,3,0.5,1)
+    obst_list = [obst]
+    #domain = None  # no physical domain walls
+    domain = [-inf,inf, 0.5,inf]
     z0_list = [z0]
 
-    debris_path_list = make_debris_path_list(debris_list, obst_list, z0_list,
-                                            t0,dt,nsteps,h,u,v)
+    debris_path_list = make_debris_path_list(debris_list, z0_list,
+                                             obst_list, domain,
+                                             t0,dt,nsteps,h,u,v)
+
+
 
     debris_path = debris_path_list[0]
 
     figure(2);clf();
+    for obst in obst_list:
+        import shapely
+        shapely.plotting.plot_polygon(obst['polygon'], add_points=False,
+                                      color='blue', alpha=0.5)
+
     for n in range(nsteps+1):
         t_n = debris_path.times[n]
         z_n = debris_path.z_path[n]
@@ -799,75 +835,3 @@ def test_debris_path_list():
     grid(True)
 
     return debris_path
-
-
-if __name__ == '__main__':
-
-    import matplotlib.animation as animation
-    from clawpack.visclaw import animation_tools
-
-    debris = DebrisObject()
-    debris.L = [1,1,1,1]
-    debris.phi = [pi/2, pi/2, pi/2, pi/2]
-    #debris.z0 = [3,1,pi/4]
-    debris.z0 = [0,0,0]
-    debris.advect = False
-    debris.rho = 100.
-    print('Draft = %.2fm' % debris.draft)
-
-    u,v = velocities_shear()
-    #h = lambda x,y,t: max(0., 0.2*(30.-t))  # fluid depth
-    h = lambda x,y,t: where(t<300, 0.5*(1 - cos(2*pi*t/15.)), 0.)
-    #h = lambda x,y,t: 0.55
-
-    t0 = 0.
-    nsteps = 150
-    dt = 0.3
-    corner_paths_a = make_corner_paths_accel(debris,h,u,v,t0,dt,nsteps)
-
-    if 1:
-        # Second object:
-        debris2 = DebrisObject()
-        debris2.L = 8 * [0.5]
-        debris2.phi = [pi/2, 0., pi/2, 0., pi/2, 0., pi/2, 0.]
-        debris2.z0 = [0,0,0]
-        debris2.advect = False
-        debris2.rho = 100.
-        corner_paths_2 = make_corner_paths_accel(debris2,h,u,v,t0,dt,nsteps)
-    else:
-        corner_paths_2 = None
-
-    fig = figure(1, figsize=(12,6))
-    clf()
-    tk,cpk,info = corner_paths_a[0]
-    c = {None:'g', 'static':'r', 'kinetic':'orange'}
-    plotk_a, = plot(cpk[:,0],cpk[:,1],color=c[info['friction']],lw=2)
-    if corner_paths_2:
-        tk,cpk2,info = corner_paths_2[0]
-        plotk_2, = plot(cpk2[:,0],cpk2[:,1],color=c[info['friction']],lw=3)
-    h0 = h(0,0,tk)
-    title_text = title('time t = %.2fs, h = %.2fm' % (tk,h0))
-    axis('scaled')
-    axis([-1,20,-2,2])
-    grid(True)
-
-    def update(k):
-        tk,cpk,info = corner_paths_a[k]
-        plotk_a.set_data(cpk[:,0],cpk[:,1])
-        plotk_a.set_color(c[info['friction']])
-        if corner_paths_2:
-            tk,cpk2,info = corner_paths_2[k]
-            plotk_2.set_data(cpk2[:,0],cpk2[:,1])
-            plotk_2.set_color(c[info['friction']])
-        h0 = h(0,0,tk)
-        title_text.set_text('time t = %.2fs, h = %.2fm' % (tk,h0))
-
-    print('Making anim...')
-    anim = animation.FuncAnimation(fig, update,
-                                   frames=len(corner_paths_a),
-                                   interval=200, blit=False)
-
-    fname_mp4 = 'corner_paths.mp4'
-    fps = 5
-    print('Making mp4...')
-    animation_tools.make_mp4(anim, fname_mp4, fps)
