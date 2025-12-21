@@ -737,6 +737,13 @@ def velocities_shear():
     v = lambda x,y,t: zeros(x.shape)
     return u,v
 
+def velocities_swirl():
+    # stream function psi(x,y) = (sin(pi*x)**2 * sin(pi*y)**2) / pi
+    # u = -psi_y,  v = psi_x
+    u = lambda x,y,t: -2*sin(pi*y)*cos(pi*y)*sin(pi*x)**2
+    v = lambda x,y,t: 2*sin(pi*x)*cos(pi*x)*sin(pi*y)**2
+    return u,v
+
 def test_debris_path():
 
     debris = DebrisObject()
@@ -834,4 +841,76 @@ def test_debris_path_list():
     axis('equal')
     grid(True)
 
+    return debris_path
+
+def test_debris_swirl():
+
+    debris = DebrisObject()
+    debris.L = [0.3,0.3,0.3]
+    debris.phi = [pi/2, pi/2, pi/2]
+    #debris.z0 = [3,1,pi/4]
+
+    debris.advect = True
+    debris.rho = 900.
+
+    u,v = velocities_swirl()
+    #h = lambda x,y,t: max(0., 0.2*(30.-t))  # fluid depth
+    #h = lambda x,y,t: where(t<30, 0.5*(1 - cos(2*pi*t/15.)), 0.)
+    h = lambda x,y,t: 10.
+
+    t0 = 0.
+    nsteps = 10
+    dt = 0.25
+    #z0 = [0,-0.5,0]
+    z0 = [0.3,0.3,0]
+
+    debris_list = [debris]
+    #obst = make_rectangular_obstacle(2,3,0.5,1)
+    #obst_list = [obst]
+    obst_list = []
+    #domain = None  # no physical domain walls
+    domain = [0,1,0,1]
+    z0_list = [z0]
+
+    debris_path_list = make_debris_path_list(debris_list, z0_list,
+                                             obst_list, domain,
+                                             t0,dt,nsteps,h,u,v)
+
+
+
+    debris_path = debris_path_list[0]
+
+    figure(2);clf();
+    for obst in obst_list:
+        import shapely
+        shapely.plotting.plot_polygon(obst['polygon'], add_points=False,
+                                      color='blue', alpha=0.5)
+
+    for n in range(nsteps+1):
+        t_n = debris_path.times[n]
+        z_n = debris_path.z_path[n]
+        xc,yc = debris.get_corners(z_n, close_poly=True)
+        plot(xc, yc, label='t = %.1f' % t_n)
+        #if mod(k,5) == 0:
+        if 0:
+            text(debris_path.x_path[k].mean(),
+                 debris_path.y_path[k].mean()+1, 't = %.1f' % t_n,
+                 color='b',fontsize=8)
+
+    #legend()
+    axis('square')
+    grid(True)
+
+    xvel = arange(0.05,1,0.05)
+    yvel = arange(0.05,1,0.05)
+    Xvel,Yvel = meshgrid(xvel,yvel,indexing='xy')
+    Uvel = u(Xvel,Yvel,0)
+    Vvel = v(Xvel,Yvel,0)
+    quiver(Xvel,Yvel,Uvel,Vvel)
+
+    psi = (sin(pi*Xvel)**2 * sin(pi*Yvel)**2) / pi
+    #contour(Xvel, Yvel, psi, colors='k', linewidths=0.7)
+
+    xlim(0,1)
+    ylim(0,1)
     return debris_path
