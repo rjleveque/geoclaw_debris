@@ -77,9 +77,10 @@ class DebrisObject():
         yc[0] = y0
         phitot = theta
         for k in range(len(self.L)):
-            phitot = phitot + self.phi[k]
+            #phitot = phitot + self.phi[k]
             xc[k+1] = xc[k] + self.L[k]*cos(phitot)
             yc[k+1] = yc[k] + self.L[k]*sin(phitot)
+            phitot = phitot + self.phi[k]
         if close_poly:
             xc[-1] = xc[0]
             yc[-1] = yc[0]
@@ -707,6 +708,7 @@ def remap_avoid(xc_hat_list, yc_hat_list, debris_list, z_guess_list,
     print('+++ remap_avoid result: success = %s, nfev = %i' \
         % (result['success'], result['nfev']))
 
+    #import pdb; pdb.set_trace()
     z_all = result['x']
     #print('+++ z_all after least squares: ',z_all)
     #print('+++ calling F(z_all)')
