@@ -1,7 +1,7 @@
 """
 Tools for debris tracking based on given velocity field.
 Rigid body motion is supported.
-Includes interaction between debris Objects or with walls.
+Includes interaction between debris Objects and/or with obstacles and walls.
 """
 
 from pylab import *
@@ -24,7 +24,9 @@ class DebrisObject():
         self.rho_water = 1000. # density of water (kg/m^3)
         self.grav = 9.81  # gravitational acceleration
 
-        self.z0 = [0.,0.,0.]  # location and orientation [x0,y0,theta0]
+        self.z = [0.,0.,0.]  # [x,y,theta] = location (x,y) of corner 0
+                             # and angle theta between x-axis and side from
+                             # corner 0 to corner 1
 
         self._radius = None  # calculate first time its requested
 
@@ -50,11 +52,11 @@ class DebrisObject():
     @property
     def radius(self):
         if self._radius is None:
-            xc,yc = self.get_corners(self.z0)
+            xc,yc = self.get_corners(self.z)
             poly = shapely.Polygon(vstack((xc,yc)).T)
             xcentroid = poly.centroid.x
             ycentroid = poly.centroid.y
-            xc,yc = self.get_corners(self.z0)
+            xc,yc = self.get_corners(self.z)
             r2 = ((xc-xcentroid)**2 + (yc-ycentroid)**2).max()
             self._radius = sqrt(r2)
         return self._radius
@@ -66,7 +68,7 @@ class DebrisObject():
         starting corner and moving at angle theta (up from x-axis) to 2nd corner.
         Length of first side is L0, then turn through angle phi1, etc.
 
-        If z is None, use z = self.z0
+        If z is None, use z = self.z
 
         If `close` is True, repeat the first point at the end for plotting
         purposes, but in general do not want to repeat a corner in computing
@@ -74,7 +76,7 @@ class DebrisObject():
         weight.
         """
         if z is None:
-            z = self.z0
+            z = self.z
         x0,y0,theta = z # unpack
         ncorners = len(self.L)+1
         if close_poly:
