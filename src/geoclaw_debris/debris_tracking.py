@@ -107,7 +107,7 @@ class DebrisPath():
             if debris is None:
                 z0 = (0,0,0)
             else:
-                z0 = debris.z0
+                z0 = debris.z
         self.z0 = z0
         if debris is not None:
             xcorners,ycorners = debris.get_corners(z0)
