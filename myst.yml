@@ -11,26 +11,6 @@ project:
       output: exports/geoclaw_debris.pdf
   toc:
     - file: index.md
-    - title: Overview and introduction
-      children:
-        - file: docs/python_environment.md
-        - file: docs/possible_projects.md
-    - file: examples/intro_examples.md
-      children:
-        - title: Particles without collision avoidance
-          children:
-            - file: examples/particles.md
-        - title: Large objects, avoiding collisions
-          children:
-            - file: src/geoclaw_debris/Test1.ipynb
-            - file: examples/flow_around_cylinder/DebrisCylinder.ipynb
-            - file: examples/wavetank1/README.md
-              children:
-                - file: examples/wavetank1/wavetank1_obstacles.ipynb
-    - title: Resources
-      children:
-        - file: docs/intro_resources.md
-        - file: docs/biblio.md
 site:
   options:
     logo: images/GeoClawLogoTitle.jpg
