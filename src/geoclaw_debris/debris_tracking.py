@@ -15,7 +15,7 @@ class DebrisObject():
 
         self.L = [1.]  # list of edge lengths between corners
         self.phi = [0.]  # list of turning angles at each corner
-        self.rho = 0.  # density (g/m^3)
+        self.rho = 0.  # density (kg/m^3)
         self.bottom_area = 1.  # area in contact with bottom for friction (m^2)
         self.face_width = 1.   # cross-section area hit by flow (m)
         self.height = 1.  # height of object
@@ -224,7 +224,8 @@ def make_debris_path_list(debris_list, z0_list, obst_list, domain,
             # average fluid depth over all the corners:
 
             hc_n = array([h_fcn(x,y,t_n) for x,y in zip(xc_n,yc_n)])
-            h_ave = hc_n.mean()
+            hc_finite = hc_n[isfinite(hc_n)]
+            h_ave = hc_finite.mean() if len(hc_finite) > 0 else 0.
 
             friction = 'no'
             stol = 1e-3
@@ -278,10 +279,10 @@ def make_debris_path_list(debris_list, z0_list, obst_list, domain,
                 uk_fluid = u_fcn(xk_n, yk_n, t_n)
                 vk_fluid = v_fcn(xk_n, yk_n, t_n)
 
-                #print('+++ k = %i, uk_f = %.3f  vk_f = %.3f' % (k,uk_f,vk_f))
-                if isnan(uk_fluid):
-                    print('*** uk_fluid is nan at ', xk_n, yk_n, t_n)
-                    continue # make corner stop moving if it goes out of bounds
+                if isnan(uk_fluid) or isnan(vk_fluid):
+                    if verbose:
+                        print('*** fluid velocity is nan at ', xk_n, yk_n, t_n)
+                    continue
 
                 if debris.advect:
                     if friction == 'no':
@@ -309,9 +310,10 @@ def make_debris_path_list(debris_list, z0_list, obst_list, domain,
                                             * (vk_n - vk_fluid)
 
                     # friction factor g * bottom_area * (mass difference)
-                    Ffriction1 = debris.grav * corner_bottom_area \
+                    # clamp to 0 when buoyant (net upward force means no bottom contact, so no friction)
+                    Ffriction1 = max(0, debris.grav * corner_bottom_area \
                                 * (debris.rho * debris.height - \
-                                   debris.rho_water * h_ave)
+                                   debris.rho_water * h_ave))
 
                     if abs(uk_n) + abs(vk_n) <= stol:
                         # check static friction:
@@ -431,12 +433,6 @@ def remap_avoid(xc_hat_list, yc_hat_list, debris_list, z_guess_list,
 
     from scipy.optimize import least_squares
 
-    # create a list z_guess_all by catenating all the 3-element z_guess lists
-    # together, so len(z_guess_all) = 3*len(z_guess_list):
-    z_guess_all = z_guess_list[0]
-    for dbno in range(1, len(z_guess_list)):
-        z_guess_all = z_guess_all + z_guess_list[dbno]
-
     def F(z_all, *args, **kwargs):
         """
         Objective function for least squares fitting
@@ -502,7 +498,7 @@ def remap_avoid(xc_hat_list, yc_hat_list, debris_list, z_guess_list,
                 z2 = z_all[3*dbno2:3*dbno2+3]
                 xc2,yc2 = debris2.get_corners(z2)
                 #print('+++ dbno2 = %i, z2 = %s' % (dbno2,z2))
-                debris2_polygon = shapely.Polygon(fliplr(vstack((xc2,yc2))).T)
+                debris2_polygon = shapely.Polygon(vstack((xc2,yc2)).T)
                 debris2_xcentroid = debris2_polygon.centroid.x
                 debris2_ycentroid = debris2_polygon.centroid.y
                 if sqrt((debris_xcentroid - debris2_xcentroid)**2 + \
