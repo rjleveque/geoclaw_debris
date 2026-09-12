@@ -1,4 +1,5 @@
 .venv
+.DS_Store
 ideas.md
 thoughts.md
 wavetank1_fgout_frames.nc
@@ -14,3 +15,11 @@ pyclaw.log
 *.tt1
 *.tt3
 *.nc
+# Seattle building data
+SeattleBuildings/Seattle_BuildingInventory.geojson
+SeattleBuildings/Seattle_Inventory.csv
+SeattleBuildings/seattle_19arcsec_navd88_wgs84.tif
+SeattleBuildings/SeattleBuildings1_19s.asc
+SeattleBuildings/SeattleBuildingsTopo.png
+SeattleBuildings/bldgs.png
+J1451155/
