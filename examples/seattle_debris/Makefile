@@ -1,5 +1,8 @@
 
-# Makefile for GeoClaw Elliott Bay debris scenario.
+# Makefile for GeoClaw seattle debris example
+# warning: no longer auto-fetches / generates topography data, that must now be done separately (potentially via `make topo`)
+
+CLAW ?= $(shell python -c "import clawpack; import os; print(os.path.dirname(clawpack.__file__))") #find clawpake path
 CLAWMAKE = $(CLAW)/clawutil/src/Makefile.common
 
 CLAW_PKG = geoclaw
@@ -27,10 +30,13 @@ SOURCES = \
 
 include $(CLAWMAKE)
 
-.PHONY: topo all
+.PHONY: topo qinit all
 topo:
 	python fetch_topo.py
 
+qinit:
+	python make_qinit.py
+
 all:
-	$(MAKE) topo
+	$(MAKE) qinit
 	$(MAKE) .output

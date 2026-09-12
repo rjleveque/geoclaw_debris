@@ -2,9 +2,10 @@
 
 import numpy as np
 from clawpack.geoclaw import topotools
-
-x1, x2 = -122.40, -122.32
-y1, y2 = 47.58, 47.64
+from setrun import X1, X2, Y1, Y2
+#keep setrun and qinit xs and ys synced
+x1, x2 = X1, X2
+y1, y2 = Y1, Y2
 cellsize = 0.0004
 x = np.arange(x1, x2 + cellsize/2, cellsize)
 y = np.arange(y1, y2 + cellsize/2, cellsize)
