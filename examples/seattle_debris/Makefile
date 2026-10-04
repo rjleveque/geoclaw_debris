@@ -1,5 +1,5 @@
 
-# Makefile for GeoClaw Elliott Bay debris scenario.
+CLAW ?= $(shell python -c "import clawpack; import os; print(os.path.dirname(clawpack.__file__))") #find clawpake path
 CLAWMAKE = $(CLAW)/clawutil/src/Makefile.common
 
 CLAW_PKG = geoclaw
@@ -27,10 +27,15 @@ SOURCES = \
 
 include $(CLAWMAKE)
 
-.PHONY: topo all
+.PHONY: topo qinit all
 topo:
-	python fetch_topo.py
+	python prepare_topo.py
+
+qinit:
+	python make_qinit.py
 
 all:
 	$(MAKE) topo
+	$(MAKE) qinit
 	$(MAKE) .output
+	cp terrain_provenance.json $(OUTDIR)/terrain_provenance.json

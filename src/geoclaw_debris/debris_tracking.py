@@ -1,18 +1,11 @@
-"""
-Tools for debris tracking based on given velocity field.
-Rigid body motion is supported.
-Includes interaction between debris Objects and/or with obstacles and walls.
-"""
-
 from pylab import *
 import shapely
 
 h_min = 1e-2 # min depth below which considered grounded
 
-class DebrisObject():
+class DebrisObject:
 
     def __init__(self):
-
         self.L = [1.]  # list of edge lengths between corners
         self.phi = [0.]  # list of turning angles at each corner
         self.rho = 0.  # density (kg/m^3)
@@ -24,19 +17,11 @@ class DebrisObject():
         self.friction_kinetic = 0.1
         self.rho_water = 1000. # density of water (kg/m^3)
         self.grav = 9.81  # gravitational acceleration
-
-        self.z = [0.,0.,0.]  # [x,y,theta] = location (x,y) of corner 0
-                             # and angle theta between x-axis and side from
-                             # corner 0 to corner 1
-
+        self.z = [0.,0.,0.]  # [x,y,theta] = location (x,y) of corner 0 and angle theta between x-axis and side from corner 0 to corner 1
         self._radius = None  # calculate first time its requested
-
         # these can be generated using velocity field from CFD simulation:
         self.times = []
-        self.corner_paths = [] # should be list of [t_n, corners_n, info] where
-                               # corners_n is array with columns [xc,yc,uc,vc]
-                               # at each time t_n in self.times
-                               # and info is a dictionary for info to save
+        self.corner_paths = [] # should be list of [t_n, corners_n, info] where corners_n is array with columns [xc,yc,uc,vc] at each time t_n in self.times and info is a dictionary for info to save
 
     @property
     def ncorners(self):
@@ -99,7 +84,7 @@ class DebrisObject():
         return xc,yc
 
 
-class DebrisPath():
+class DebrisPath:
 
     def __init__(self, debris=None, times=[0.], z0=None):
         self.debris = debris # for debris object being tracked
@@ -150,9 +135,72 @@ def make_rectangular_obstacle(x1,x2,y1,y2):
     return obst
 
 
+def make_massless_tracer_path(debris, z0, obstacle_geometry, domain, t0, dt, nsteps, h_fcn, u_fcn, v_fcn):
+    """
+    Advect one massless, passive tracer. 
+    Buildings are treated as impermeable polygons buffered by the tracer radius.
+    If a step would cross a wall, the tracer is frozen in place until fluid pushes it away from the walls.
+    """
+    from shapely.geometry import Point, LineString, box
+    from shapely.ops import nearest_points
 
-def make_debris_path_list(debris_list, z0_list, obst_list, domain,
-                          t0,dt,nsteps, h_fcn,u_fcn,v_fcn, verbose=False):
+    if not debris.advect or debris.rho != 0.: raise ValueError('make_massless_tracer_path requires advect=True and rho=0')
+
+    times = arange(t0, t0 + (nsteps + 0.5)*dt, dt)
+    path = DebrisPath(debris, times, z0)
+    path.info_path = [{'friction': 'no'}]
+    clearance = debris.radius
+    forbidden = (obstacle_geometry.buffer(clearance) if obstacle_geometry is not None else None)
+    if domain is None: allowed = None
+    else:
+        x1,x2,y1,y2 = domain
+        allowed = box(x1+clearance, y1+clearance, x2-clearance, y2-clearance)
+
+    def first_hit_fraction(start, end):
+        """how much of the proposed step is possible (not running into obstacle)"""
+        line = LineString([start, end])
+        if line.length == 0.: return 0.
+        alpha = 1.
+        if forbidden is not None and line.intersects(forbidden):
+            overlap = line.intersection(forbidden)
+            hit = nearest_points(Point(start), overlap)[1]
+            alpha = min(alpha, line.project(hit) / line.length)
+        if allowed is not None and not allowed.covers(Point(end)):
+            crossings = line.intersection(allowed.boundary)
+            if not crossings.is_empty:
+                hit = nearest_points(Point(start), crossings)[1]
+                alpha = min(alpha, line.project(hit) / line.length)
+            else: alpha = 0.
+        # stay just outside the polygon so we could get moved away in the next step
+        return max(0., alpha - 1.e-8)
+
+    z_n = array(z0, dtype=float)
+    for n in range(nsteps):
+        xc_n,yc_n = debris.get_corners(z_n)
+        x_n = xc_n.mean()
+        y_n = yc_n.mean()
+        h_n = h_fcn(x_n, y_n, times[n])
+        if ma.is_masked(h_n) or not isfinite(h_n) or float(h_n) < h_min:
+            dx = dy = 0.
+            friction = 'static'
+        else:
+            dx = dt * float(u_fcn(x_n, y_n, times[n]))
+            dy = dt * float(v_fcn(x_n, y_n, times[n]))
+            if not isfinite(dx) or not isfinite(dy): dx = dy = 0.
+            friction = 'no'
+        alpha = first_hit_fraction((x_n,y_n), (x_n+dx,y_n+dy))
+        z_np1 = z_n + array([alpha*dx, alpha*dy, 0.])
+        xc_np1,yc_np1 = debris.get_corners(z_np1)
+        path.x_path[n+1,:] = xc_np1
+        path.y_path[n+1,:] = yc_np1
+        path.u_path[n+1,:] = (xc_np1-xc_n)/dt
+        path.v_path[n+1,:] = (yc_np1-yc_n)/dt
+        path.z_path[n+1,:] = z_np1
+        path.info_path.append({'friction': friction})
+        z_n = z_np1
+    return path
+
+def make_debris_path_list(debris_list, z0_list, obst_list, domain, t0,dt,nsteps, h_fcn,u_fcn,v_fcn, verbose=False):
 
     """
     Compute the paths of a set of debris objects in a specified velocity
