@@ -27,7 +27,7 @@ SOURCES = \
 
 include $(CLAWMAKE)
 
-.PHONY: topo qinit all
+.PHONY: topo qinit all flow
 topo:
 	python prepare_topo.py
 
@@ -37,5 +37,9 @@ qinit:
 all:
 	$(MAKE) topo
 	$(MAKE) qinit
+	rm -f .data
 	$(MAKE) .output
 	cp terrain_provenance.json $(OUTDIR)/terrain_provenance.json
+
+flow: all
+	python combine_fgout_nc.py

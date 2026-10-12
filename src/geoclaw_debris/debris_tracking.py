@@ -143,6 +143,7 @@ def make_massless_tracer_path(debris, z0, obstacle_geometry, domain, t0, dt, nst
     """
     from shapely.geometry import Point, LineString, box
     from shapely.ops import nearest_points
+    from shapely.prepared import prep
 
     if not debris.advect or debris.rho != 0.: raise ValueError('make_massless_tracer_path requires advect=True and rho=0')
 
@@ -151,6 +152,7 @@ def make_massless_tracer_path(debris, z0, obstacle_geometry, domain, t0, dt, nst
     path.info_path = [{'friction': 'no'}]
     clearance = debris.radius
     forbidden = (obstacle_geometry.buffer(clearance) if obstacle_geometry is not None else None)
+    prepared_forbidden = prep(forbidden) if forbidden is not None else None # this should be more performant for later calculations
     if domain is None: allowed = None
     else:
         x1,x2,y1,y2 = domain
@@ -161,7 +163,7 @@ def make_massless_tracer_path(debris, z0, obstacle_geometry, domain, t0, dt, nst
         line = LineString([start, end])
         if line.length == 0.: return 0.
         alpha = 1.
-        if forbidden is not None and line.intersects(forbidden):
+        if prepared_forbidden is not None and prepared_forbidden.intersects(line):
             overlap = line.intersection(forbidden)
             hit = nearest_points(Point(start), overlap)[1]
             alpha = min(alpha, line.project(hit) / line.length)

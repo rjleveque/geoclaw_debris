@@ -5,6 +5,7 @@ import time
 import netCDF4
 from clawpack.geoclaw import fgout_tools
 from prepare_topo import file_hash
+from setrun import DX_METERS, SURGE_HEIGHT_M
 
 
 def combine():
@@ -18,12 +19,14 @@ def combine():
     for n in range(1, grid.nout+1):
         if not (outdir / f'fgout{fgno:04d}.b{n:04d}').exists(): raise ValueError(f'incomplete: missing frame {n}/{grid.nout}')
     first = grid.read_frame(1)
-    destination = Path('pike_place_buffered_fgout.nc')
+    destination = Path(f'pike_place_surge{SURGE_HEIGHT_M:g}_fgout.nc')
     temporary = destination.with_suffix('.partial.nc')
     with netCDF4.Dataset(temporary, 'w') as ds:
-        ds.description = 'uniform 3 m Pike Place waterfront flow on corrected terrain'
+        ds.description = f'uniform {DX_METERS:g} m Pike Place waterfront flow with {SURGE_HEIGHT_M:g} m initial surge'
         ds.history = f'created {time.ctime()} from {outdir}'
         ds.terrain_sha256 = provenance['combined_sha256']
+        ds.surge_height_m = SURGE_HEIGHT_M
+        ds.grid_spacing_m = DX_METERS
         ds.fgno = fgno
         for name, values, units in [('lon', first.x, 'degrees_east'), ('lat', first.y, 'degrees_north')]:
             ds.createDimension(name, len(values))

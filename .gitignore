@@ -23,5 +23,6 @@ SeattleBuildings/SeattleBuildings1_19s.asc
 SeattleBuildings/SeattleBuildingsTopo.png
 SeattleBuildings/bldgs.png
 J1451155/
-examples/seattle_debris/pike_place_tracers.npz
+examples/seattle_debris/pike_place_tracers*.npz
 examples/seattle_debris/terrain_provenance.json
+*.png
