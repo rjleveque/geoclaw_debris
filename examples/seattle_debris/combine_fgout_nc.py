@@ -11,7 +11,10 @@ from setrun import DX_METERS, SURGE_HEIGHT_M
 def combine():
     outdir = Path('_output').resolve()
     fgno = 1
-    provenance = json.loads((outdir / 'terrain_provenance.json').read_text())
+    # since we are combining fgout grids, we need to check that the terrain provenance matches the current terrain
+    provenance_file = outdir / 'terrain_provenance.json'
+    if not provenance_file.exists(): raise FileNotFoundError(f'{provenance_file} is missing; run `make flow` from examples/seattle_debris')
+    provenance = json.loads(provenance_file.read_text())
     terrain = Path(__file__).resolve().parent / 'seattle_buildings_mhw.tt3'
     if file_hash(terrain) != provenance['combined_sha256']: raise ValueError('provenance does not match the current terrain')
     grid = fgout_tools.FGoutGrid(fgno, str(outdir), 'binary32')
