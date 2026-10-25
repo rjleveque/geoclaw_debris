@@ -1,8 +1,8 @@
 '''first attempt at ship tracking in geoclaw, seems to work at least in the small trial run notebook'''
 import numpy as np
 from scipy.interpolate import RegularGridInterpolator
-from shapely.geometry import MultiPoint, Polygon
-from shapely.ops import transform
+from shapely.geometry import MultiPoint, Point, Polygon
+from shapely.ops import nearest_points, transform
 
 class Ship:
     def __init__(self, length_m=60., beam_m=12., draft_m=3., block_coefficient=.7, water_density=1025., drag_coefficient=1., under_keel_clearance_m=.5):
@@ -69,9 +69,11 @@ def check_pose(flow, buildings_utm, ship, center, heading, t):
     if hull_polygon(center, heading, ship).intersects(buildings_utm): return False, 'building contact', depth
     return True, 'clear', depth
 
-def simulate(flow, buildings_lonlat, ship, start_lonlat, heading_deg=0., start_time=0., end_time=600., dt=1.):
+def simulate(flow, buildings_lonlat, ship, start_lonlat, heading_deg=0., start_time=0., end_time=600., dt=1., contact_mode='stop'):
+    """Track a ship, optionally sliding along buildings after contact."""
     if dt <= 0 or end_time <= start_time or not np.isclose((end_time-start_time)/dt, round((end_time-start_time)/dt)): raise ValueError('choose a positive dt that divides the time span')
     if min(ship.length_m, ship.beam_m, ship.draft_m, ship.mass_kg) <= 0: raise ValueError('ship dimensions and mass must be positive')
+    if contact_mode not in ('stop', 'slide'): raise ValueError('contact_mode must be stop or slide')
 
     buildings = transform(flow.to_xy, buildings_lonlat)
     center = np.array(flow.to_xy(*start_lonlat), dtype=float)
@@ -80,11 +82,13 @@ def simulate(flow, buildings_lonlat, ship, start_lonlat, heading_deg=0., start_t
     yaw_rate = 0.
     path = []
     stopped = None
+    contact_state = 'afloat'
 
     for t in np.arange(start_time, end_time+dt/2., dt):
         clear, reason, depth = check_pose(flow, buildings, ship, center, heading, t)
         if not clear and stopped is None: raise ValueError(f'invalid ship pose at t={t}: {reason}')
-        path.append({'time_s': float(t), 'x_m': float(center[0]), 'y_m': float(center[1]), 'heading_deg': float(np.rad2deg(heading)), 'u_mps': float(velocity[0]), 'v_mps': float(velocity[1]), 'min_depth_m': depth, 'status': stopped or 'afloat'})
+        path.append({'time_s': float(t), 'x_m': float(center[0]), 'y_m': float(center[1]), 'heading_deg': float(np.rad2deg(heading)), 'u_mps': float(velocity[0]), 'v_mps': float(velocity[1]), 'min_depth_m': depth, 'status': stopped or contact_state})
+        contact_state = 'afloat'
         if t >= end_time or stopped: continue
 
         points = hull_points(center, heading, ship)
@@ -121,6 +125,7 @@ def simulate(flow, buildings_lonlat, ship, start_lonlat, heading_deg=0., start_t
             center, heading = position, angle
             velocity, yaw_rate = next_velocity, next_yaw_rate
             continue
+        initial_center = center.copy()
         low, high = 0., 1.
         for _ in range(24): # binary search for how far the ship can go without collision/grounding
             fraction = (low+high)/2.
@@ -128,7 +133,47 @@ def simulate(flow, buildings_lonlat, ship, start_lonlat, heading_deg=0., start_t
             if valid: low = fraction
             else: high = fraction
         _, _, center, heading = try_step(low)
-        velocity[:] = 0.
-        yaw_rate = 0.
-        stopped = reason if reason != 'clear' else 'building contact'
+        # slide ship along wall when it hits instead of simply stopping
+        if contact_mode == 'slide' and reason in ('building contact', 'clear'):
+            hull = hull_polygon(center, heading, ship)
+            remaining = next_center - center
+            hull_point, wall_point = nearest_points(hull, buildings)
+            normal = np.asarray(hull_point.coords[0]) - np.asarray(wall_point.coords[0])
+            if np.linalg.norm(normal) < 1.e-7:
+                wall_point = nearest_points(Point(center), buildings)[1]
+                normal = center - np.asarray(wall_point.coords[0])
+            if np.linalg.norm(normal) < 1.e-7:
+                normal = -remaining if np.linalg.norm(remaining) else np.array([1., 0.])
+            normal /= np.linalg.norm(normal)
+            along_wall = remaining - min(0., np.dot(remaining, normal)) * normal
+            contact_center = center.copy()
+
+            def try_slide(fraction, contact_center=contact_center, along_wall=along_wall, heading=heading, t=t):
+                candidate = contact_center + fraction*along_wall
+                clear, _, _ = check_pose(flow, buildings, ship, candidate, heading, t+dt)
+                swept = MultiPoint(np.vstack((hull_points(contact_center, heading, ship), hull_points(candidate, heading, ship)))).convex_hull
+                return clear and not swept.intersects(buildings)
+
+            if not try_slide(0.):
+                _, why, _ = check_pose(flow, buildings, ship, contact_center, heading, t+dt)
+                stopped = why if why != 'clear' else 'building contact'
+                velocity[:] = 0.
+                yaw_rate = 0.
+                continue
+            if try_slide(1.): center = contact_center + along_wall
+            else:
+                slide_low, slide_high = 0., 1.
+                # binary search for farthest safe spot
+                for _ in range(24):
+                    fraction = (slide_low+slide_high)/2.
+                    if try_slide(fraction): slide_low = fraction
+                    else: slide_high = fraction
+                center = contact_center + slide_low*along_wall
+            velocity = (center-initial_center)/dt
+            yaw_rate = 0.
+            contact_state = 'sliding' if np.linalg.norm(center-contact_center) > 1.e-3 else 'blocked'
+        else:
+            velocity[:] = 0.
+            yaw_rate = 0.
+            stopped = reason if reason != 'clear' else 'building contact'
     return path
