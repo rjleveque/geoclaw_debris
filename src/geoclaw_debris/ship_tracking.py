@@ -3,6 +3,7 @@ import numpy as np
 from scipy.interpolate import RegularGridInterpolator
 from shapely.geometry import MultiPoint, Point, Polygon
 from shapely.ops import nearest_points, transform
+from shapely.prepared import prep
 
 class Ship:
     def __init__(self, length_m=60., beam_m=12., draft_m=3., block_coefficient=.7, water_density=1025., drag_coefficient=1., under_keel_clearance_m=.5):
@@ -66,16 +67,17 @@ def check_pose(flow, buildings_utm, ship, center, heading, t):
     if not np.isfinite(depths).all(): return False, 'flow boundary', np.nan
     depth = float(depths.min())
     if depth < ship.draft_m + ship.under_keel_clearance_m: return False, 'grounding', depth
-    if hull_polygon(center, heading, ship).intersects(buildings_utm): return False, 'building contact', depth
+    if buildings_utm.intersects(hull_polygon(center, heading, ship)): return False, 'building contact', depth
     return True, 'clear', depth
 
-def simulate(flow, buildings_lonlat, ship, start_lonlat, heading_deg=0., start_time=0., end_time=600., dt=1., contact_mode='stop'):
-    """Track a ship, optionally sliding along buildings after contact."""
+def simulate(flow, buildings_lonlat, ship, start_lonlat, heading_deg=0., start_time=0., end_time=600., dt=1., contact_mode='slide'):
     if dt <= 0 or end_time <= start_time or not np.isclose((end_time-start_time)/dt, round((end_time-start_time)/dt)): raise ValueError('choose a positive dt that divides the time span')
     if min(ship.length_m, ship.beam_m, ship.draft_m, ship.mass_kg) <= 0: raise ValueError('ship dimensions and mass must be positive')
     if contact_mode not in ('stop', 'slide'): raise ValueError('contact_mode must be stop or slide')
 
     buildings = transform(flow.to_xy, buildings_lonlat)
+    # Reuse a spatial index for the many hull/obstacle checks in a fleet run.
+    building_contacts = prep(buildings)
     center = np.array(flow.to_xy(*start_lonlat), dtype=float)
     heading = np.deg2rad(heading_deg)
     velocity = np.zeros(2)
@@ -85,7 +87,7 @@ def simulate(flow, buildings_lonlat, ship, start_lonlat, heading_deg=0., start_t
     contact_state = 'afloat'
 
     for t in np.arange(start_time, end_time+dt/2., dt):
-        clear, reason, depth = check_pose(flow, buildings, ship, center, heading, t)
+        clear, reason, depth = check_pose(flow, building_contacts, ship, center, heading, t)
         if not clear and stopped is None: raise ValueError(f'invalid ship pose at t={t}: {reason}')
         path.append({'time_s': float(t), 'x_m': float(center[0]), 'y_m': float(center[1]), 'heading_deg': float(np.rad2deg(heading)), 'u_mps': float(velocity[0]), 'v_mps': float(velocity[1]), 'min_depth_m': depth, 'status': stopped or contact_state})
         contact_state = 'afloat'
@@ -116,9 +118,9 @@ def simulate(flow, buildings_lonlat, ship, start_lonlat, heading_deg=0., start_t
         def try_step(fraction, center=center, heading=heading, t=t, points=points, next_center=next_center, next_heading=next_heading):
             position = center + fraction*(next_center-center)
             angle = heading + fraction*(next_heading-heading)
-            valid, why, _ = check_pose(flow, buildings, ship, position, angle, t+fraction*dt)
+            valid, why, _ = check_pose(flow, building_contacts, ship, position, angle, t+fraction*dt)
             swept = MultiPoint(np.vstack((points, hull_points(position, angle, ship)))).convex_hull
-            return valid and not swept.intersects(buildings), why, position, angle
+            return valid and not building_contacts.intersects(swept), why, position, angle
 
         valid, reason, position, angle = try_step(1.)
         if valid:
@@ -150,12 +152,12 @@ def simulate(flow, buildings_lonlat, ship, start_lonlat, heading_deg=0., start_t
 
             def try_slide(fraction, contact_center=contact_center, along_wall=along_wall, heading=heading, t=t):
                 candidate = contact_center + fraction*along_wall
-                clear, _, _ = check_pose(flow, buildings, ship, candidate, heading, t+dt)
+                clear, _, _ = check_pose(flow, building_contacts, ship, candidate, heading, t+dt)
                 swept = MultiPoint(np.vstack((hull_points(contact_center, heading, ship), hull_points(candidate, heading, ship)))).convex_hull
-                return clear and not swept.intersects(buildings)
+                return clear and not building_contacts.intersects(swept)
 
             if not try_slide(0.):
-                _, why, _ = check_pose(flow, buildings, ship, contact_center, heading, t+dt)
+                _, why, _ = check_pose(flow, building_contacts, ship, contact_center, heading, t+dt)
                 stopped = why if why != 'clear' else 'building contact'
                 velocity[:] = 0.
                 yaw_rate = 0.
