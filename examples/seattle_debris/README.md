@@ -1,8 +1,3 @@
-# Seattle debris experiment
-
-This experiment makes a GeoClaw flow field for the Seattle waterfront, then uses
-it in the tracer and ship notebooks. The model terrain comes from [here](https://www.ngdc.noaa.gov/thredds/catalog/tiles/nthmp/tiled_19as/catalog.html?dataset=tilesDatasetScan/nthmp/tiled_19as/puget_sound_mhw_19_n47x75_w122x50_2023v1.nc).
-
 ## Inputs
 
 1. Run `SeattleBuildings/InventoryBRAILS_Seattle2.ipynb` to create

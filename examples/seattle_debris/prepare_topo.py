@@ -18,16 +18,19 @@ SOURCE = HERE.parents[1] / 'SeattleBuildings'
 MHW_NAME = 'puget_sound_mhw_19_n47x75_w122x50_2023v1.nc'
 
 
-def read_mhw_region(source):
+def read_mhw_region(source, bounds=None):
     # read the model domain and one extra cell to avoid edge effects in geoclaw
+    west, east, south, north = (X1, X2, Y1, Y2) if bounds is None else bounds
+    if not (west < east and south < north):
+        raise ValueError('bounds must be west, east, south, north')
     with netCDF4.Dataset(source) as ds:
         lon = np.asarray(ds['lon'][:], dtype=float)
         lat = np.asarray(ds['lat'][:], dtype=float)
         if not (np.all(np.diff(lon) > 0) and np.all(np.diff(lat) > 0)): raise ValueError('MHW longitude and latitude must increase')
-        col0 = np.searchsorted(lon, X1, side='left') - 1
-        col1 = np.searchsorted(lon, X2, side='right') + 1
-        row0 = np.searchsorted(lat, Y1, side='left') - 1
-        row1 = np.searchsorted(lat, Y2, side='right') + 1
+        col0 = np.searchsorted(lon, west, side='left') - 1
+        col1 = np.searchsorted(lon, east, side='right') + 1
+        row0 = np.searchsorted(lat, south, side='left') - 1
+        row1 = np.searchsorted(lat, north, side='right') + 1
         if min(col0, row0) < 0 or col1 > len(lon) or row1 > len(lat): raise ValueError('MHW terrain does not cover the simulation domain')
         x = lon[col0:col1]
         y = lat[row0:row1]
