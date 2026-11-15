@@ -73,8 +73,9 @@ def move_debris(dbnos, debris_paths, fgout1, fgout2, coordinate_system=2,
     t2 = fgout2.t
     dt = t2 - t1
 
-    print('Moving debris over time dt = %g' % dt)
-    print('       from t1 = %s to t2 = %.2f' % (t1,t2))
+    #print('Moving debris over time dt = %g' % dt)
+    #print('       from t1 = %s to t2 = %.2f' % (t1,t2))
+    print(f'Moving debris from t1 = {t1:.2f} to t2 = {t2:.2f}')
 
     h_fcn = make_fgout_fcn_xyt(fgout1, fgout2, 'h')
     u_fcn = make_fgout_fcn_xyt(fgout1, fgout2, 'u')
@@ -215,7 +216,7 @@ def make_debris_paths(fgframes, fgout_grid, debris_paths, dbnos,
     fgout1.t to fgout2.t, where fgout1 is the previous frame.  The new time
     and location are added as a new row in the debris_path array.
 
-    It is assumed that the
+    See improved version make_debris_paths_fromframes below.
     """
 
     fgout1 = fgout_grid.read_frame(fgframes[0])
@@ -240,6 +241,53 @@ def make_debris_paths(fgframes, fgout_grid, debris_paths, dbnos,
         except:
             print('Could not read file, exiting loop')
             break
+        debris_paths = move_debris(dbnos, debris_paths, fgout1, fgout2,
+                                   drag_factor=drag_factor,
+                                   grounding_depth=grounding_depth,
+                                   grounding_speed=grounding_speed)
+        fgout1 = fgout2
+    return debris_paths
+
+def make_debris_paths_fromframes(fgout_frames, debris_paths, dbnos,
+                      drag_factor=None, grounding_depth=0., grounding_speed=0.):
+    """
+    dbnos is a list of debris particle labels (integers) to operate on.
+    debris_paths a dictionary indexed by integer dbno.
+    Each element
+        debris_path = debris_paths[dbno]
+    is a 2D numpy array with at least one row and three columns t,x,y.
+
+    The last row of debris_path[dbno], as passed in, defines the starting time
+    and location of the particle dbno.
+
+    This routine loops over all fgout frames in fgout_frames, 
+    and then calls move_debris to move each particle from time
+    fgout1.t to fgout2.t, where fgout1 is the previous frame.  The new time
+    and location are added as a new row in the debris_path array.
+
+    Improved version of make_debris_paths, since frames have already been
+    read in, perhaps from a single netCDF file, and can later be used also for
+    plotting, without re-reading.
+    """
+
+    #fgout1 = fgout_grid.read_frame(fgframes[0])
+    fgout1 = fgout_frames[0]
+    for dbno in dbnos:
+        try:
+            debris_path = debris_paths[dbno]
+            t1,xd1,yd1,ud1,vd1 = debris_path[-1,:]
+        except:
+            errmsg = 'on input, debris_path[%s] should be a 2d array ' % dbno \
+                        + 'with at least one row'
+            raise ValueError(errmsg)
+        errmsg = 'Time of first fgout frame %i is t = %g ' \
+             % (fgout_frames[0].t,fgout1.t) \
+             + 'This should agree with t value in last row of debris_paths[%s]'\
+             % dbno
+        assert t1 == fgout1.t, errmsg
+
+    for fgout2 in fgout_frames[1:]:
+
         debris_paths = move_debris(dbnos, debris_paths, fgout1, fgout2,
                                    drag_factor=drag_factor,
                                    grounding_depth=grounding_depth,
@@ -274,6 +322,30 @@ def get_debris_xy(t, debris_paths, dbnos):
 
     return xd,yd
 
+def plot_debris(t, debris_paths, dbnos, ax, 
+                color='k', marker='s', markersize=4):
+    """
+    Plot the location of each debris particle from the list dbnos at time t,
+    assuming debris_paths[dbno] has a row corresponding to this time.
+    This assumes debris_paths contains the full debris paths as computed by
+    make_debris_paths.
+    """
+
+    xd = []
+    yd = []   
+    for dbno in dbnos:
+        db = debris_paths[dbno]
+        try:
+            j = where(abs(db[:,0]-t) < 1e-6)[0].max()
+        except:
+            print('Did not find path for dbno=%i at t = %.3f' % (dbno,t))
+            j = -1
+        if j > -1:
+            xd.append(db[j,1])
+            yd.append(db[j,2])
+    plot_db = ax.plot(xd, yd, color=color, linestyle='',
+                      marker=marker, markersize=markersize)
+    return plot_db  
 
 
 # ==================================
@@ -353,6 +425,8 @@ def make_debris_paths_pairs(fgno, fgframes, plotdata, debris_paths,
     """
     dbnosA,dbnosB are equal-length lists of debris particle labels (integers)
     to operate on, specifying ed points of long debris particles.
+
+    TODO: improve this as done in make_debris_paths_fromframes
     """
 
     fgout1 = read_fgout_frame(fgno, fgframes[0], plotdata)
