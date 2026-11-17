@@ -1025,20 +1025,23 @@ def get_as_array(var, rootgrp, verbose=True):
         return None
 
 
-def read_netcdf_arrays(fname_nc, qois, verbose=True):
+def read_netcdf_arrays(fname_nc, qois=None, verbose=True):
     """
     Read a netCDF file and extract the quantities of interest denoted by
-    strings in the list qois, which can include:
+    strings in the list qois, which might include:
 
         'h', 'eta', 'hu', 'hv', 'u', 'v', 's', 'hss', 'B'.
 
-    qois can also include the time-independent 'B0' and/or 'Bfinal'
+    qois can also include the time-independent 'B0' and/or 'Bfinal'.
+    
+    If qois=None, return all variables found in the netCDF file.
 
     Returns
 
-        x, y, t, qoi_arrays
+        x, y, t, qois, qoi_arrays
 
     where x,y define the longitude, latitudes, t is the times of the frames,
+    qois is the set of qois for which data was returned,
     and qoi_arrays is a dictionary indexed by the strings from qois.
 
     Each dict element is an array with shape (len(t), len(x), len(y))
@@ -1059,71 +1062,33 @@ def read_netcdf_arrays(fname_nc, qois, verbose=True):
         t = get_as_array('time', rootgrp, verbose)
 
         vars = list(rootgrp.variables)
+        #print(f'+++ Found variables: {vars}')
 
+        if qois is None:
+            qois = vars[3:]  # ignoring vars 'lon', 'lat', 'time'
+
+        qois_found = list(qois)
         qoi_arrays = {}
         for qoi in qois:
             qoi_array = get_as_array(qoi, rootgrp, verbose)
             qoi_arrays[qoi] = qoi_array
+            if qoi_array is None:
+                # this qoi not found in the netCDF file
+                qois_found.remove(qoi)
+        #print(f'+++ now qois_found = {qois_found}')
 
-    return x,y,t,qoi_arrays
+    return x,y,t,qois_found,qoi_arrays
 
 
 
 def read_netcdf(fname_nc, fgout_grid=None, verbose=True):
     """
     Read a netCDF file and return a list of FGoutFrame instances.
-    This will only be possible if the netCDF file contains at least
-    the qoi's 'h','hu','hv','eta' required to reconstruct the q array
-    as output by GeoClaw.
+    This isn't so easy in general since the arrays don't have all the info
+    normally stored in fgout grids.
     """
+    print('*** Function read_netcdf deprecated')
 
-    import netCDF4
-
-    with netCDF4.Dataset(fname_nc, 'r') as rootgrp:
-        if 1:
-            print('Reading data to fgout frames from nc file',fname_nc)
-            print('        nc file description: ', rootgrp.description)
-            print('History:  ', rootgrp.history)
-
-        x = get_as_array('lon', rootgrp, verbose)
-        y = get_as_array('lat', rootgrp, verbose)
-        t = get_as_array('time', rootgrp, verbose)
-
-        vars = list(rootgrp.variables)
-
-
-        for qoi in ['h','hu','hv','eta']:
-            errmsg = '*** Cannot reconstruct fgout frame without %s' % qoi
-            assert qoi in vars, errmsg
-        h = get_as_array('h', rootgrp, verbose)
-        hu = get_as_array('hu', rootgrp, verbose)
-        hv = get_as_array('hv', rootgrp, verbose)
-        eta = get_as_array('eta', rootgrp, verbose)
-
-        if (x is None) or (y is None):
-            print('*** Could not create grid')
-        else:
-            X,Y = numpy.meshgrid(x,y)
-
-        fgout_frames = []
-
-        for k in range(eta.shape[0]):
-            fgout = FGoutFrame(fgout_grid=fgout_grid, frameno=k)
-            fgout.x = x
-            fgout.y = y
-            fgout.t = t[k]
-            fgout.q = numpy.empty((4,eta.shape[1],eta.shape[2]))
-            fgout.q[0,:,:] = h[k,:,:]
-            fgout.q[1,:,:] = hu[k,:,:]
-            fgout.q[2,:,:] = hv[k,:,:]
-            fgout.q[3,:,:] = eta[k,:,:]
-            fgout.X = X
-            fgout.Y = Y
-            fgout_frames.append(fgout)
-
-        print('Created fgout_frames as list of length %i' % len(fgout_frames))
-
-    return fgout_frames
 
 def print_netcdf_info(fname_nc):
     """
