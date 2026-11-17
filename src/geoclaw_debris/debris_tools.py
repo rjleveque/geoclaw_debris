@@ -216,7 +216,7 @@ def make_debris_paths(fgframes, fgout_grid, debris_paths, dbnos,
     fgout1.t to fgout2.t, where fgout1 is the previous frame.  The new time
     and location are added as a new row in the debris_path array.
 
-    See improved version make_debris_paths_fromframes below.
+    See improved version make_debris_paths_fcnxyt below.
     """
 
     fgout1 = fgout_grid.read_frame(fgframes[0])
@@ -248,52 +248,7 @@ def make_debris_paths(fgframes, fgout_grid, debris_paths, dbnos,
         fgout1 = fgout2
     return debris_paths
 
-def make_debris_paths_fromframes(fgout_frames, debris_paths, dbnos,
-                      drag_factor=None, grounding_depth=0., grounding_speed=0.):
-    """
-    dbnos is a list of debris particle labels (integers) to operate on.
-    debris_paths a dictionary indexed by integer dbno.
-    Each element
-        debris_path = debris_paths[dbno]
-    is a 2D numpy array with at least one row and three columns t,x,y.
 
-    The last row of debris_path[dbno], as passed in, defines the starting time
-    and location of the particle dbno.
-
-    This routine loops over all fgout frames in fgout_frames, 
-    and then calls move_debris to move each particle from time
-    fgout1.t to fgout2.t, where fgout1 is the previous frame.  The new time
-    and location are added as a new row in the debris_path array.
-
-    Improved version of make_debris_paths, since frames have already been
-    read in, perhaps from a single netCDF file, and can later be used also for
-    plotting, without re-reading.
-    """
-
-    #fgout1 = fgout_grid.read_frame(fgframes[0])
-    fgout1 = fgout_frames[0]
-    for dbno in dbnos:
-        try:
-            debris_path = debris_paths[dbno]
-            t1,xd1,yd1,ud1,vd1 = debris_path[-1,:]
-        except:
-            errmsg = 'on input, debris_path[%s] should be a 2d array ' % dbno \
-                        + 'with at least one row'
-            raise ValueError(errmsg)
-        errmsg = 'Time of first fgout frame %i is t = %g ' \
-             % (fgout_frames[0].t,fgout1.t) \
-             + 'This should agree with t value in last row of debris_paths[%s]'\
-             % dbno
-        assert t1 == fgout1.t, errmsg
-
-    for fgout2 in fgout_frames[1:]:
-
-        debris_paths = move_debris(dbnos, debris_paths, fgout1, fgout2,
-                                   drag_factor=drag_factor,
-                                   grounding_depth=grounding_depth,
-                                   grounding_speed=grounding_speed)
-        fgout1 = fgout2
-    return debris_paths
 
 
 def get_debris_xy(t, debris_paths, dbnos):
@@ -426,7 +381,7 @@ def make_debris_paths_pairs(fgno, fgframes, plotdata, debris_paths,
     dbnosA,dbnosB are equal-length lists of debris particle labels (integers)
     to operate on, specifying ed points of long debris particles.
 
-    TODO: improve this as done in make_debris_paths_fromframes
+    TODO: improve this as done in make_debris_paths_fcnxyt
     """
 
     fgout1 = read_fgout_frame(fgno, fgframes[0], plotdata)
@@ -517,3 +472,226 @@ def get_dbAB_old(t, debris_paths, dbnosA, dbnosB):
     xdAB = array(xdAB)
     ydAB = array(ydAB)
     return xdAB,ydAB
+
+
+# ======
+# Refactor based on loading all frames and computing interp fcns of (x,y,t)
+# before doing any tracking....
+
+
+def move_debris_fcnxyt(dbnos, debris_paths, t1, t2, qoi_fcns,
+                    coordinate_system=2,
+                    drag_factor=None, grounding_depth=0., grounding_speed=0.):
+    """
+    For each dbno in dbnos: debris_paths[dbno] is a 2D array and it is assumed
+    that the last row has the form [t1, x1, y1, u1, v1] with the location and
+    velocity of this debris particle at time t1.
+
+    Compute the location and velocity of the debris particle at time t2,
+    and append [t2, x2, y2, u2, v2] to the bottom of debris_paths[dbno].
+
+    This version assumes qoi_fcns is a dictionary with entries for each qoi in
+        qois = ['h', 'u', 'v', 'B']
+    and qoi_fcns[qoi] is a function of (x,y,t) that can be evaluated at any
+    point in the space-time region defined by the fgout grids (if these were
+    defined by interpolating functions based on fgout).  However, any functions
+    can be provided, e.g. analytic formulas for testing, or 2D flow fields
+    extended from 1D simulation data of a plane wave in a wave tank, for
+    example.
+
+    coordinate_system = 1 if (x,y) are in meters,
+                        2 if (x,y) are degrees longitude, latitude
+    The velocities (u,v) are always in m/s.
+
+    drag_factor, grounding_depth, and grounding_speed
+    can be single values applying to all particles, or dictionaries with
+    keys given by the elements of dbnos.
+
+    If drag_factor[dbno]==None, grounding_depth[dbno]==0, and
+    grounding_speed[dbno]==0, then the debris particles passively advect
+    with the fluid velocity.
+
+    This is currently implemented using the 2-step explicit Runge-Kutta method:
+    1. Interpolate fgout1.u and fgout1.v to (x1,y1) and move the particle
+    over time dt/2 with this velocity, to obtain (xm,ym).
+    2. Interpolate (u,v) in space and time to this midpoint location, and then
+    use this velocity to move the particle over time dt from (x1,y1) to (x2,y2).
+
+    If grounding_depth[dbno] > 0 and/or grounding_speed > 0,
+    then the particle is assumed to be grounded
+    whenever the local fluid depth h < grounding_depth[dbno]
+    or the speed s < grounding_speed, where h and s are
+    interpolated first to (x1,y1) and then to (xm,ym).
+
+    If drag_factor[dbno] > 0, then the particle velocity (ud,vd)
+    relaxes toward the fluid velocity (u,v) by approximately solving the ODEs
+      d/dt ud = C * (u-ud)
+      d/dt vd = C * (v-vd)
+    where C = drag_factor[dbno]*sqrt((u-ud)**2 + (v-vd)**2)
+    We approximate this by setting C to value at the current time, yielding
+    exponential decay of (ud,vd) toward (u,v) with rate C over each time step.
+
+    Still to add: Static and dynamic bottom friction, so that if the fluid depth
+    is less than grounding_depth[dbno], the particle could still be dragged.
+
+    """
+
+    from clawpack.geoclaw.fgout_tools import make_fgout_fcn_xyt
+
+    dt = t2 - t1
+
+    print(f'Moving debris from t1 = {t1:.2f} to t2 = {t2:.2f}')
+
+    # unpack functions of (x,y,t):
+    h_fcn = qoi_fcns['h']
+    u_fcn = qoi_fcns['u']
+    v_fcn = qoi_fcns['v']
+    B_fcn = qoi_fcns['B']
+
+
+    for dbno in dbnos:
+        debris_path = debris_paths[dbno]
+        try:
+            t1_db,xd1,yd1,ud1,vd1 = debris_path[-1,:]
+        except:
+            errmsg = f'on input, debris_path[{dbno}] should be a 2d array ' \
+                        + 'with at least one row'
+            raise ValueError(errmsg)
+
+        errmsg = f'*** For dbno = {dbno}, expected {t1_db:.3f} to equal ' \
+                    + f't1 = {t1:.3f}'
+        assert t1_db == t1, errmsg
+
+        try:
+            gd = grounding_depth[dbno]  # if different for each particle
+        except:
+            gd = grounding_depth  # assume it's a scalar, same for all debris
+
+        try:
+            gs = grounding_speed[dbno]  # if different for each particle
+        except:
+            gs = grounding_speed  # assume it's a scalar, same for all debris
+
+        try:
+            df = drag_factor[dbno]  # if different for each particle
+        except:
+            df = drag_factor  # assume it's a scalar, same for all debris
+
+        if coordinate_system == 1:
+            dxdt = ud1
+            dydt = vd1
+        else:
+            # x,y in degrees, u,v in m/s
+            # convert u,v to degrees/second:
+            dxdt = ud1 / (Rearth*DEG2RAD * cos(DEG2RAD*yd1))
+            dydt = vd1 / (Rearth*DEG2RAD)
+
+        # Assume ud1, vd1 were properly set at time fgout1.t, so no need
+        # to check for grounding now.
+
+        # Half time step with old velocities:
+        xdm = xd1 + 0.5*dt*dxdt
+        ydm = yd1 + 0.5*dt*dydt
+
+        tm = t1 + 0.5*dt  # t at midpoint in time
+
+        # depth and fluid velocity at midpoint in time tm:
+        hm = h_fcn(xdm,ydm,tm)
+        um = u_fcn(xdm,ydm,tm)
+        vm = v_fcn(xdm,ydm,tm)
+        sm = sqrt(um**2 + vm**2)
+
+        if hm < gd or sm < gs:
+            # particle is grounded so velocities set to 0:
+            udm = 0.
+            vdm = 0.
+        elif df is None:
+            # no drag factor and debris velocity = fluid velocity:
+            udm = um
+            vdm = vm
+        else:
+            # debris velocity (ud,vd) relaxes toward fluid velocity (u,v):
+            # solve
+            #   d/dt ud = C * (u-ud)
+            #   d/dt vd = C * (v-vd)
+            # where C = df*sqrt((u-ud)**2 + (v-vd)**2).
+            # Approximate this by setting C to value at t1, so simple
+            # exponential decay with rate C:
+            u1 = u_fcn(xd1,yd1,t1)
+            v1 = v_fcn(xd1,yd1,t1)
+            C = df*sqrt((u1-ud1)**2 + (v1-vd1)**2)
+            udm = um - exp(-C*dt/2)*(um-ud1)
+            vdm = vm - exp(-C*dt/2)*(vm-vd1)
+            #print('+++ um=%g,  ud1=%g,  udm=%g: ' % (um,ud1,udm))
+
+        if coordinate_system == 1:
+            dxdt = udm
+            dydt = vdm
+        else:
+            # x,y in degrees, u,v in m/s
+            # convert u,v to degrees/second:
+            dxdt = udm / (Rearth*DEG2RAD * cos(DEG2RAD*yd1))
+            dydt = vdm / (Rearth*DEG2RAD)
+
+        # Take full time step with mid-point debris velocities:
+        xd2 = xd1 + dt*dxdt
+        yd2 = yd1 + dt*dydt
+
+        # Depth and fluid velocity at final time t2 (to append to debris_path):
+        h2 = h_fcn(xd2,yd2,t2)
+        u2 = u_fcn(xd2,yd2,t2)
+        v2 = v_fcn(xd2,yd2,t2)
+
+        if h2 < gd:
+            # particle is grounded so velocities set to 0:
+            ud2 = 0.
+            vd2 = 0.
+        elif df is None:
+            # no drag factor and debris velocity = fluid velocity:
+            ud2 = u2
+            vd2 = v2
+        else:
+            # IS THIS RIGHT?  NEED TO CONVERT BACK FROM DEGREE/SEC?
+            # debris velocity (ud,vd) relaxes toward fluid velocity (u,v).
+            # Take another half time step of decay from (udm,vdm),
+            # now approximating C at the midpoint in time:
+            C = df*sqrt((um-udm)**2 + (vm-vdm)**2)
+            ud2 = u2 - exp(-C*dt/2)*(u2-udm)
+            vd2 = v2 - exp(-C*dt/2)*(v2-vdm)
+            #print('+++ u2=%g,  udm=%g,  ud2=%g: ' % (u2,udm,ud2))
+
+        debris_paths[dbno] = vstack((debris_path, array([t2,xd2,yd2,ud2,vd2])))
+
+    return debris_paths
+
+
+def make_debris_paths_fcnxyt(times, qoi_fcns, debris_paths, dbnos,
+                      drag_factor=None, grounding_depth=0., grounding_speed=0.):
+    """
+    dbnos is a list of debris particle labels (integers) to operate on.
+    debris_paths a dictionary indexed by integer dbno.
+    Each element
+        debris_path = debris_paths[dbno]
+    is a 2D numpy array with at least one row and three columns t,x,y.
+
+    The last row of debris_path[dbno], as passed in, defines the starting time
+    and location of the particle dbno.
+
+    This routine takes time steps from times[0] to times[-1], and in each
+    step the new time and location are added as a new row in the
+    debris_path array.
+
+    This is an improved version of make_debris_paths,
+    passing in qoi_fcns and times so that it can be used for more general
+    cases.
+    """
+
+
+    for n in range(len(times) - 1):
+        t1 = times[n]
+        t2 = times[n+1]
+        debris_paths = move_debris_fcnxyt(dbnos, debris_paths, t1, t2, qoi_fcns,
+                                   drag_factor=drag_factor,
+                                   grounding_depth=grounding_depth,
+                                   grounding_speed=grounding_speed)
+    return debris_paths
